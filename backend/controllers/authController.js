@@ -61,6 +61,7 @@ const register = async (req, res) => {
       .select();
 
     if (error) {
+      console.error('Supabase insert error during register:', error);
       return res.status(500).json({
         success: false,
         message: 'Error creating user',
@@ -79,6 +80,7 @@ const register = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Register handler error:', error);
     return res.status(500).json({
       success: false,
       message: 'Server error',
@@ -111,6 +113,7 @@ const login = async (req, res) => {
       .maybeSingle();
 
     if (error) {
+      console.error('Supabase query error during login:', error);
       return res.status(500).json({
         success: false,
         message: 'Error checking user credentials',
@@ -163,6 +166,7 @@ const login = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Login handler error:', error);
     return res.status(500).json({
       success: false,
       message: 'Server error',
