@@ -20,11 +20,19 @@ const register = async (req, res) => {
     }
 
     // Check if user already exists
-    const { data: existingUser } = await supabase
+    const { data: existingUser, error: existingUserError } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
-      .single();
+      .maybeSingle();
+
+    if (existingUserError) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error checking existing user',
+        data: existingUserError.message || existingUserError
+      });
+    }
 
     if (existingUser) {
       return res.status(409).json({
@@ -56,7 +64,7 @@ const register = async (req, res) => {
       return res.status(500).json({
         success: false,
         message: 'Error creating user',
-        data: error
+        data: error.message || error
       });
     }
 
@@ -100,9 +108,17 @@ const login = async (req, res) => {
       .from('users')
       .select('*')
       .eq('email', email)
-      .single();
+      .maybeSingle();
 
-    if (error || !user) {
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error checking user credentials',
+        data: error.message || error
+      });
+    }
+
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password',
