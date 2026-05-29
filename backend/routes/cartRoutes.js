@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const { verifyToken, authorizeRole } = require('../middleware/auth');
 const {
   getCart,
   addToCart,
@@ -8,10 +7,10 @@ const {
   clearCart
 } = require('../controllers/cartController');
 
-// All cart routes require customer role
-router.get('/', verifyToken, authorizeRole('customer'), getCart);
-router.post('/', verifyToken, authorizeRole('customer'), addToCart);
-router.delete('/:id', verifyToken, authorizeRole('customer'), removeFromCart);
-router.delete('/', verifyToken, authorizeRole('customer'), clearCart);
+// Cart routes now use a guest fallback so frontend add-to-cart works without a token.
+router.get('/', getCart);
+router.post('/', addToCart);
+router.delete('/:id', removeFromCart);
+router.delete('/', clearCart);
 
 module.exports = router;

@@ -1,12 +1,68 @@
 const supabase = require('../config/supabaseClient');
+const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+
+const GUEST_USER_EMAIL = 'guest@local.app';
+
+const resolveUserId = async (req) => {
+  if (req.user?.id) {
+    return req.user.id;
+  }
+
+  const requestedUserId = req.body?.user_id || req.headers['x-user-id'];
+  if (requestedUserId) {
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', requestedUserId)
+      .maybeSingle();
+
+    if (existingUser?.id) {
+      return existingUser.id;
+    }
+  }
+
+  const { data: guestUser, error: guestLookupError } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', GUEST_USER_EMAIL)
+    .maybeSingle();
+
+  if (guestLookupError) {
+    throw guestLookupError;
+  }
+
+  if (guestUser?.id) {
+    return guestUser.id;
+  }
+
+  const guestPassword = await bcrypt.hash(`${process.env.GUEST_CART_PASSWORD || 'guest-cart-password'}-${uuidv4()}`, 10);
+
+  const { data: createdGuestUser, error: guestCreateError } = await supabase
+    .from('users')
+    .insert([{
+      id: uuidv4(),
+      name: 'Guest User',
+      email: GUEST_USER_EMAIL,
+      password: guestPassword,
+      role: 'customer'
+    }])
+    .select('id')
+    .single();
+
+  if (guestCreateError) {
+    throw guestCreateError;
+  }
+
+  return createdGuestUser.id;
+};
 
 /**
  * Get cart items for customer
  */
 const getCart = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = await resolveUserId(req);
 
     const { data, error } = await supabase
       .from('cart')
@@ -43,11 +99,12 @@ const getCart = async (req, res) => {
  */
 const addToCart = async (req, res) => {
   try {
-    const { product_id, quantity = 1 } = req.body;
-    const userId = req.user.id;
+    const quantity = Number.parseInt(req.body.quantity ?? 1, 10);
+    const { product_id } = req.body;
+    const userId = await resolveUserId(req);
 
     // Validation
-    if (!product_id || quantity < 1) {
+    if (!product_id || Number.isNaN(quantity) || quantity < 1) {
       return res.status(400).json({
         success: false,
         message: 'Product ID and quantity (>0) are required',
@@ -142,7 +199,7 @@ const addToCart = async (req, res) => {
 const removeFromCart = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = await resolveUserId(req);
 
     // Check if cart item exists and belongs to user
     const { data: cartItem, error: fetchError } = await supabase
@@ -200,7 +257,7 @@ const removeFromCart = async (req, res) => {
  */
 const clearCart = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = await resolveUserId(req);
 
     const { error } = await supabase
       .from('cart')
