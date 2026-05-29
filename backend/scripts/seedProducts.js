@@ -85,8 +85,6 @@ const seedProducts = async () => {
       description: product.description,
       price: product.price,
       image: product.image,
-      rating: product.rating,
-      location: product.location,
       created_at: new Date().toISOString()
     }));
 

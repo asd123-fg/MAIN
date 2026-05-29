@@ -4,6 +4,10 @@ const { v4: uuidv4 } = require('uuid');
 const DEFAULT_RATING = 4.5;
 const DEFAULT_LOCATION = 'Unknown location';
 
+const removeUndefinedValues = (record = {}) => Object.fromEntries(
+  Object.entries(record).filter(([, value]) => value !== undefined)
+);
+
 const normalizeProduct = (product = {}) => {
   const imageUrl = product.imageUrl || product.image || null;
   const parsedRating = Number.parseFloat(product.rating);
@@ -46,6 +50,64 @@ const parseRating = (rating) => {
   }
 
   return parsed;
+};
+
+const executeProductInsert = async (payload) => {
+  const sanitizedPayload = removeUndefinedValues(payload);
+  const firstAttempt = await supabase
+    .from('products')
+    .insert([sanitizedPayload])
+    .select();
+
+  if (!firstAttempt.error) {
+    return firstAttempt;
+  }
+
+  const schemaFallbackMessage = firstAttempt.error.message || '';
+  if (!/Could not find the 'rating' column|Could not find the 'location' column/.test(schemaFallbackMessage)) {
+    return firstAttempt;
+  }
+
+  const fallbackPayload = removeUndefinedValues({
+    ...sanitizedPayload,
+    rating: undefined,
+    location: undefined
+  });
+
+  return supabase
+    .from('products')
+    .insert([fallbackPayload])
+    .select();
+};
+
+const executeProductUpdate = async (id, updateData) => {
+  const sanitizedUpdate = removeUndefinedValues(updateData);
+  const firstAttempt = await supabase
+    .from('products')
+    .update(sanitizedUpdate)
+    .eq('id', id)
+    .select();
+
+  if (!firstAttempt.error) {
+    return firstAttempt;
+  }
+
+  const schemaFallbackMessage = firstAttempt.error.message || '';
+  if (!/Could not find the 'rating' column|Could not find the 'location' column/.test(schemaFallbackMessage)) {
+    return firstAttempt;
+  }
+
+  const fallbackUpdate = removeUndefinedValues({
+    ...sanitizedUpdate,
+    rating: undefined,
+    location: undefined
+  });
+
+  return supabase
+    .from('products')
+    .update(fallbackUpdate)
+    .eq('id', id)
+    .select();
 };
 
 /**
@@ -175,10 +237,7 @@ const createProduct = async (req, res) => {
       created_at: new Date().toISOString()
     };
 
-    const { data, error } = await supabase
-      .from('products')
-      .insert([productPayload])
-      .select();
+    const { data, error } = await executeProductInsert(productPayload);
 
     if (error) {
       return res.status(500).json({
@@ -279,11 +338,7 @@ const updateProduct = async (req, res) => {
       updateData.location = location || DEFAULT_LOCATION;
     }
 
-    const { data, error } = await supabase
-      .from('products')
-      .update(updateData)
-      .eq('id', id)
-      .select();
+    const { data, error } = await executeProductUpdate(id, updateData);
 
     if (error) {
       return res.status(500).json({
