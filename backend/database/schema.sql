@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS products (
   description TEXT,
   price DECIMAL(10, 2) NOT NULL,
   image TEXT,
+  rating NUMERIC(3, 1) DEFAULT 4.5 CHECK (rating >= 0 AND rating <= 5),
+  location VARCHAR(255) DEFAULT 'Unknown location',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (merchant_id) REFERENCES users(id) ON DELETE CASCADE

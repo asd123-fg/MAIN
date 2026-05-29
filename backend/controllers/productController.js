@@ -1,6 +1,53 @@
 const supabase = require('../config/supabaseClient');
 const { v4: uuidv4 } = require('uuid');
 
+const DEFAULT_RATING = 4.5;
+const DEFAULT_LOCATION = 'Unknown location';
+
+const normalizeProduct = (product = {}) => {
+  const imageUrl = product.imageUrl || product.image || null;
+  const parsedRating = Number.parseFloat(product.rating);
+  const rating = Number.isFinite(parsedRating) ? parsedRating : DEFAULT_RATING;
+
+  return {
+    ...product,
+    id: product.id,
+    name: product.name,
+    description: product.description ?? '',
+    price: Number.parseFloat(product.price ?? 0),
+    image: imageUrl,
+    imageUrl,
+    rating,
+    location: product.location || DEFAULT_LOCATION,
+    ownerId: product.ownerId || product.merchant_id || null,
+    merchant_id: product.merchant_id || product.ownerId || null,
+    created_at: product.created_at || null,
+    updated_at: product.updated_at || null
+  };
+};
+
+const parsePrice = (price) => {
+  const parsed = Number.parseFloat(price);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const parseRating = (rating) => {
+  if (rating === undefined || rating === null || rating === '') {
+    return DEFAULT_RATING;
+  }
+
+  const parsed = Number.parseFloat(rating);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_RATING;
+  }
+
+  return parsed;
+};
+
 /**
  * Get all products
  */
@@ -15,14 +62,16 @@ const getProducts = async (req, res) => {
       return res.status(500).json({
         success: false,
         message: 'Error fetching products',
-        data: error
+        data: null
       });
     }
+
+    const products = Array.isArray(data) ? data.map(normalizeProduct) : [];
 
     return res.status(200).json({
       success: true,
       message: 'Products fetched successfully',
-      data: data
+      data: products
     });
   } catch (error) {
     return res.status(500).json({
@@ -57,7 +106,7 @@ const getProductById = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Product fetched successfully',
-      data: data
+      data: normalizeProduct(data)
     });
   } catch (error) {
     return res.status(500).json({
@@ -73,45 +122,76 @@ const getProductById = async (req, res) => {
  */
 const createProduct = async (req, res) => {
   try {
-    const { name, description, price, image } = req.body;
     const merchantId = req.user.id;
+    const {
+      name: rawName,
+      description = '',
+      price,
+      imageUrl: rawImageUrl,
+      image: rawImage,
+      rating,
+      location
+    } = req.body;
 
-    // Validation
-    if (!name || !description || !price) {
+    const name = typeof rawName === 'string' ? rawName.trim() : '';
+    const imageUrl = typeof rawImageUrl === 'string' ? rawImageUrl.trim() : '';
+    const image = typeof rawImage === 'string' ? rawImage.trim() : '';
+    const resolvedImageUrl = imageUrl || image;
+    const parsedPrice = parsePrice(price);
+
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: 'Name, description, and price are required',
+        message: 'Product name is required',
         data: null
       });
     }
 
+    if (parsedPrice === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid product price is required',
+        data: null
+      });
+    }
+
+    if (!resolvedImageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'imageUrl is required',
+        data: null
+      });
+    }
+
+    const productPayload = {
+      id: uuidv4(),
+      merchant_id: merchantId,
+      name,
+      description,
+      price: parsedPrice,
+      image: resolvedImageUrl,
+      rating: parseRating(rating),
+      location: location || DEFAULT_LOCATION,
+      created_at: new Date().toISOString()
+    };
+
     const { data, error } = await supabase
       .from('products')
-      .insert([
-        {
-          id: uuidv4(),
-          merchant_id: merchantId,
-          name,
-          description,
-          price: parseFloat(price),
-          image: image || null,
-          created_at: new Date()
-        }
-      ])
+      .insert([productPayload])
       .select();
 
     if (error) {
       return res.status(500).json({
         success: false,
         message: 'Error creating product',
-        data: error
+        data: null
       });
     }
 
     return res.status(201).json({
       success: true,
       message: 'Product created successfully',
-      data: data[0]
+      data: normalizeProduct(data[0])
     });
   } catch (error) {
     return res.status(500).json({
@@ -128,10 +208,17 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, price, image } = req.body;
     const merchantId = req.user.id;
+    const {
+      name: rawName,
+      description,
+      price,
+      imageUrl: rawImageUrl,
+      image: rawImage,
+      rating,
+      location
+    } = req.body;
 
-    // Check if product exists and belongs to merchant
     const { data: product, error: fetchError } = await supabase
       .from('products')
       .select('*')
@@ -154,12 +241,43 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    // Update product
     const updateData = {};
-    if (name) updateData.name = name;
-    if (description) updateData.description = description;
-    if (price) updateData.price = parseFloat(price);
-    if (image) updateData.image = image;
+    if (typeof rawName === 'string') {
+      const trimmedName = rawName.trim();
+      if (trimmedName) {
+        updateData.name = trimmedName;
+      }
+    }
+
+    if (description !== undefined) {
+      updateData.description = description;
+    }
+
+    if (price !== undefined) {
+      const parsedPrice = parsePrice(price);
+      if (parsedPrice === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'A valid product price is required',
+          data: null
+        });
+      }
+      updateData.price = parsedPrice;
+    }
+
+    if (typeof rawImageUrl === 'string' || typeof rawImage === 'string') {
+      const imageUrl = typeof rawImageUrl === 'string' ? rawImageUrl.trim() : '';
+      const image = typeof rawImage === 'string' ? rawImage.trim() : '';
+      updateData.image = imageUrl || image || product.image || null;
+    }
+
+    if (rating !== undefined) {
+      updateData.rating = parseRating(rating);
+    }
+
+    if (location !== undefined) {
+      updateData.location = location || DEFAULT_LOCATION;
+    }
 
     const { data, error } = await supabase
       .from('products')
@@ -171,14 +289,14 @@ const updateProduct = async (req, res) => {
       return res.status(500).json({
         success: false,
         message: 'Error updating product',
-        data: error
+        data: null
       });
     }
 
     return res.status(200).json({
       success: true,
       message: 'Product updated successfully',
-      data: data[0]
+      data: normalizeProduct(data[0])
     });
   } catch (error) {
     return res.status(500).json({
@@ -197,7 +315,6 @@ const deleteProduct = async (req, res) => {
     const { id } = req.params;
     const merchantId = req.user.id;
 
-    // Check if product exists and belongs to merchant
     const { data: product, error: fetchError } = await supabase
       .from('products')
       .select('*')
@@ -220,7 +337,6 @@ const deleteProduct = async (req, res) => {
       });
     }
 
-    // Delete product
     const { error } = await supabase
       .from('products')
       .delete()
@@ -230,7 +346,7 @@ const deleteProduct = async (req, res) => {
       return res.status(500).json({
         success: false,
         message: 'Error deleting product',
-        data: error
+        data: null
       });
     }
 
